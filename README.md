@@ -19,8 +19,8 @@ A Python-based trading indicator that combines **Elliot Wave Theory**, **EMA 21 
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
-cd <project-folder>
+git clone https://github.com/ponnitheunreal/EWA-Crypto.git
+cd EWA-Crypto
 ```
 
 Or download and extract the ZIP, then navigate to the folder.
@@ -401,4 +401,4 @@ MIT (or project-specific license)
 
 ## Support
 
-Please report any issues or feature requests on the GitHub repository's [Issues](<repository-url>/issues) page.
+Please report any issues or feature requests on the GitHub repository's [Issues](https://github.com/ponnitheunreal/EWA-Crypto/issues) page.
