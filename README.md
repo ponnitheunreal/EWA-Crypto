@@ -16,11 +16,14 @@ A Python-based trading indicator that combines **Elliot Wave Theory**, **EMA 21 
 
 ## Installation
 
-### 1. Clone or download this repository
+### 1. Clone the repository
 
 ```bash
-cd H:\Project\Elliot\ wave
+git clone <your-repo-url>
+cd "Elliot wave"
 ```
+
+Or download and extract the ZIP, then navigate to the folder.
 
 ### 2. Create virtual environment
 
@@ -398,4 +401,4 @@ MIT (or project-specific license)
 
 ## Support
 
-Report issues at: https://github.com/Kilo-Org/kilocode/issues
+Report issues at: https://github.com/your-username/your-repo/issues  # Replace with your repo URL
