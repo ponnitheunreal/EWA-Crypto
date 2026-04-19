@@ -24,10 +24,14 @@ class Signal:
     reason: str = ""
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    signal_category: str = ""  # ACTIVE_TRADE, SETUP, INVALID
+    trend_context: str = ""    # TREND_ALIGNED, COUNTER_TREND, NONE
 
     def __str__(self) -> str:
         return (f"{self.timestamp}: {self.signal_type} (conf={self.confidence:.2f}) "
-                f"@ {self.price:.2f} | Wave {self.wave_num} | {self.reason}")
+                f"@ {self.price:.2f} | Wave {self.wave_num} | {self.reason}"
+                + (f" | Type: {self.signal_category}" if self.signal_category else "")
+                + (f" | Trend: {self.trend_context}" if self.trend_context else ""))
 
 
 class SignalGenerator:
@@ -178,8 +182,11 @@ class SignalGenerator:
                         confidence += 0.1
 
                 if confidence >= self.min_confidence:
-                    # Calculate stop-loss and take-profit
-                    atr = self._calculate_atr(df).iloc[-1]
+                    atr_series = self._calculate_atr(df)
+                    atr = atr_series.iloc[-1]
+                    # Handle NaN ATR (fallback to 2% stop distance)
+                    if pd.isna(atr) or atr <= 0:
+                        atr = latest_close * 0.02
                     stop_loss = latest_close - (self.STOP_MULTIPLIER * atr)
 
                     tp_price = None
@@ -221,7 +228,11 @@ class SignalGenerator:
                         confidence += 0.1
 
                 if confidence >= self.min_confidence:
-                    atr = self._calculate_atr(df).iloc[-1]
+                    atr_series = self._calculate_atr(df)
+                    atr = atr_series.iloc[-1]
+                    # Handle NaN ATR (fallback to 2% stop distance)
+                    if pd.isna(atr) or atr <= 0:
+                        atr = latest_close * 0.02
                     stop_loss = latest_close + (self.STOP_MULTIPLIER * atr)
 
                     tp_price = None

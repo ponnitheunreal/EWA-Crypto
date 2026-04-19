@@ -129,6 +129,8 @@ class FibonacciLevels:
         nearest_distance = float('inf')
 
         for level_name, level_price in retracements.items():
+            if level_price <= 0:  # Skip zero/negative levels to avoid division by zero
+                continue
             distance = abs(price - level_price) / level_price
             if distance < nearest_distance:
                 nearest_distance = distance
@@ -160,11 +162,15 @@ class FibonacciLevels:
         nearby_levels = []
 
         for level_name, level_price in retracements.items():
+            if level_price <= 0:  # Skip zero/negative levels
+                continue
             if abs(price - level_price) / level_price <= tolerance:
                 nearby_levels.append(level_name)
 
         if extensions:
             for level_name, level_price in extensions.items():
+                if level_price <= 0:  # Skip zero/negative levels
+                    continue
                 if abs(price - level_price) / level_price <= tolerance:
                     nearby_levels.append(level_name)
 

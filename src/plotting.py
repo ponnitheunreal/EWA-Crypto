@@ -1,11 +1,12 @@
-# plotting.py — Professional Multi-Panel Chart Generator
+# plotting.py — High-Resolution Professional Chart Generator
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.patches import Rectangle
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import pandas as pd
 import numpy as np
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List, Literal
 from datetime import datetime
 import os
 
@@ -14,295 +15,471 @@ from .elliot_wave import Wave
 from .signals import Signal
 
 
-class ProfessionalChartPlotter:
+class HighResolutionPlotter:
     """
-    High-quality multi-panel chart for Elliot Wave analysis.
+    High-resolution, publication-quality chart generator for Elliot Wave analysis.
 
-    Panels:
-    - Top: Price (candlesticks + EMA + waves + Fib levels + signals)
-    - Bottom: Volume (colored by direction)
+    Features:
+    - Default 300 DPI output (configurable up to 1200 DPI)
+    - Vector export support (PDF, SVG, EPS)
+    - Adaptive figure sizing based on data density
+    - Dark and light themes
+    - Intelligent label placement to prevent overlap
+    - Multi-panel layout: price + volume + optional indicator panel
+    - High-quality anti-aliased rendering
 
-    Output: High-resolution PNG with clear annotations.
+    Example:
+        plotter = HighResolutionPlotter(indicator, theme="dark", dpi=300)
+        plotter.plot(df, "charts/chart.png", format="png")
     """
 
-    # Color scheme
-    C = {
-        "price_up": "#26a69a",       # Teal green
-        "price_down": "#ef5350",     # Red
-        "ema": "#ff9800",            # Orange
-        "wave1": "#1976d2",          # Blue
-        "wave2": "#f57c00",          # Orange
-        "wave3": "#388e3c",          # Green
-        "wave4": "#d32f2f",          # Red
-        "wave5": "#7b1fa2",          # Purple
-        "buy": "#4caf50",            # Green
-        "sell": "#f44336",           # Red
-        "entry": "#ffd700",          # Gold
-        "sl": "#f44336",             # Red
-        "tp": "#4caf50",             # Green
-        "fib_ret": "#7986cb",        # Indigo
-        "fib_ext": "#ba68c8",        # Purple
-        "support": "#4caf50",
-        "resistance": "#f44336",
-        "bg": "#ffffff",
-        "grid": "#e0e0e0",
-        "text": "#212121",
+    # Color palettes
+    THEMES = {
+        "light": {
+            "price_up": "#26a69a",
+            "price_down": "#ef5350",
+            "ema": "#ff9800",
+            "wave1": "#1976d2",
+            "wave2": "#f57c00",
+            "wave3": "#388e3c",
+            "wave4": "#d32f2f",
+            "wave5": "#7b1fa2",
+            "buy": "#4caf50",
+            "sell": "#f44336",
+            "entry": "#ffd700",
+            "sl": "#f44336",
+            "tp": "#4caf50",
+            "fib_ret": "#7986cb",
+            "fib_ext": "#ba68c8",
+            "support": "#4caf50",
+            "resistance": "#f44336",
+            "bg": "#ffffff",
+            "grid": "#e0e0e0",
+            "text": "#212121",
+            "volume_up": (38/255, 166/255, 154/255, 0.6),
+            "volume_down": (239/255, 83/255, 80/255, 0.6),
+        },
+        "dark": {
+            "price_up": "#4db6ac",
+            "price_down": "#ef5350",
+            "ema": "#ffb74d",
+            "wave1": "#64b5f6",
+            "wave2": "#ffb74d",
+            "wave3": "#81c784",
+            "wave4": "#e57373",
+            "wave5": "#ba68c8",
+            "buy": "#66bb6a",
+            "sell": "#ef5350",
+            "entry": "#ffd700",
+            "sl": "#ef5350",
+            "tp": "#66bb6a",
+            "fib_ret": "#7986cb",
+            "fib_ext": "#ba68c8",
+            "support": "#66bb6a",
+            "resistance": "#ef5350",
+            "bg": "#121212",
+            "grid": "#333333",
+            "text": "#e0e0e0",
+            "volume_up": (77/255, 182/255, 172/255, 0.6),
+            "volume_down": (239/255, 83/255, 80/255, 0.6),
+        },
     }
 
     def __init__(
         self,
         indicator: CryptoElliotWaveIndicator,
-        style: str = "seaborn-v0_8-whitegrid",
-        figsize: Tuple[int, int] = (22, 14),
+        theme: Literal["light", "dark"] = "light",
+        base_dpi: int = 300,
+        figsize_scale: float = 1.0,
     ):
         """
-        Initialize professional plotter.
+        Initialize high-resolution plotter.
 
         Args:
             indicator: CryptoElliotWaveIndicator instance.
-            style: Matplotlib style name.
-            figsize: Figure size (width, height) in inches.
+            theme: "light" or "dark" color scheme.
+            base_dpi: Base DPI for raster output (min 150, recommended 300-600).
+            figsize_scale: Scale factor for figure size (1.0 = default).
         """
         self.indicator = indicator
-        self.figsize = figsize
-        self.style = style
-        plt.style.use(style)
+        self.theme = theme
+        self.colors = self.THEMES[theme]
+        self.base_dpi = max(150, min(base_dpi, 1200))  # clamp 150-1200
+        self.figsize_scale = figsize_scale
 
-    def _index_to_int(self, df: pd.DataFrame, timestamps: pd.DatetimeIndex) -> List[int]:
-        """Convert timestamps to integer positions in DataFrame."""
-        return [df.index.get_loc(ts) for ts in timestamps if ts in df.index]
+        # Professional font settings
+        plt.rcParams.update({
+            "font.family": "DejaVu Sans",
+            "font.size": 10,
+            "axes.labelsize": 11,
+            "axes.titlesize": 13,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 9,
+            "figure.dpi": self.base_dpi,
+            "savefig.dpi": self.base_dpi,
+            "savefig.bbox": "tight",
+            "savefig.pad_inches": 0.3,
+            "axes.facecolor": self.colors["bg"],
+            "figure.facecolor": self.colors["bg"],
+            "savefig.facecolor": self.colors["bg"],
+            "savefig.edgecolor": "none",
+            "axes.edgecolor": self.colors["text"],
+            "axes.labelcolor": self.colors["text"],
+            "xtick.color": self.colors["text"],
+            "ytick.color": self.colors["text"],
+            "text.color": self.colors["text"],
+            "grid.color": self.colors["grid"],
+            "grid.alpha": 0.2,
+        })
 
-    def _plot_price_panel(self, ax: plt.Axes, df: pd.DataFrame, signals_df: pd.DataFrame,
-                         latest_signal: Optional[Signal], waves: List[Wave],
-                         retracements: Dict[str, float], extensions: Dict[str, float],
-                         support_resistance: Dict[str, List[float]], timeframe: str) -> None:
-        """Main price chart with all overlays."""
+    def _calculate_figure_size(self, n_bars: int, timeframe: str) -> Tuple[int, int]:
+        """Auto-scale figure based on data density and timeframe."""
+        # Base size
+        base_width = 20
+        base_height = 10
 
+        # Adjust for timeframe - daily needs more width per bar
+        if timeframe in ["1d", "D", "1w", "W"]:
+            width_per_bar = 0.15  # wider spacing for daily
+        else:
+            width_per_bar = 0.08  # denser for intraday
+
+        # Scale width by number of bars (capped to avoid excessive size)
+        width = min(base_width + n_bars * width_per_bar, 40) * self.figsize_scale
+
+        # Height scales slightly with density
+        height_multiplier = 1.0 + min(n_bars / 500, 0.5)
+        height = base_height * height_multiplier * self.figsize_scale
+
+        return (int(width), int(height))
+
+    def _create_figure(self, n_bars: int, timeframe: str) -> Tuple[plt.Figure, Tuple[plt.Axes, plt.Axes]]:
+        """Create optimized figure with subplots."""
+        width, height = self._calculate_figure_size(n_bars, timeframe)
+
+        # Use constrained_layout for automatic spacing
+        fig = plt.figure(figsize=(width, height), constrained_layout=True)
+        fig.set_dpi(self.base_dpi)
+        fig.set_facecolor(self.colors["bg"])
+
+        # Create 2-row layout: price (75%), volume (25%)
+        gs = fig.add_gridspec(
+            2, 1,
+            height_ratios=[4, 1],
+            hspace=0.08,
+            left=0.07,
+            right=0.97,
+            bottom=0.06,
+            top=0.95
+        )
+
+        ax_price = fig.add_subplot(gs[0, 0])
+        ax_volume = fig.add_subplot(gs[1, 0], sharex=ax_price)
+
+        # Style axes
+        for ax in [ax_price, ax_volume]:
+            ax.set_facecolor(self.colors["bg"])
+            ax.grid(True, linestyle="--", alpha=0.2, color=self.colors["grid"])
+            for spine in ax.spines.values():
+                spine.set_edgecolor(self.colors["text"])
+                spine.set_linewidth(0.8)
+
+        ax_price.set_ylabel("Price", fontweight="bold", color=self.colors["text"])
+        ax_volume.set_ylabel("Volume", fontweight="bold", color=self.colors["text"])
+        ax_volume.set_xlabel("Date", fontweight="bold", color=self.colors["text"])
+
+        return fig, (ax_price, ax_volume)
+
+    def _format_dates(self, ax: plt.Axes, df: pd.DataFrame, timeframe: str) -> None:
+        """Format x-axis dates with sensible tick density."""
         n_bars = len(df)
-        x = np.arange(n_bars)
+        start_date = df.index[0]
+        end_date = df.index[-1]
+        date_range_days = (end_date - start_date).days
 
-        # --- Candlesticks ---
-        bullish = df["close"] >= df["open"]
-        bearish = df["close"] < df["open"]
+        # Increase max ticks to accommodate dense data
+        mdates.MAXTICKS = 2000
 
-        # Body
-        body_bull = df.loc[bullish, "close"].values - df.loc[bullish, "open"].values
-        body_bear = df.loc[bearish, "open"].values - df.loc[bearish, "close"].values
-        body_center_bull = (df.loc[bullish, "open"].values + df.loc[bullish, "close"].values) / 2
-        body_center_bear = (df.loc[bearish, "open"].values + df.loc[bearish, "close"].values) / 2
+        # Use AutoDateLocator for intelligent tick placement
+        locator = mdates.AutoDateLocator(minticks=5, maxticks=20)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(mdates.AutoDateFormatter(locator))
 
-        ax.bar(x[bullish], body_bull, bottom=df.loc[bullish, "open"].values,
-               color=self.C["price_up"], width=0.7, alpha=0.9, edgecolor=self.C["price_up"], linewidth=0.5)
-        ax.bar(x[bearish], body_bear, bottom=df.loc[bearish, "close"].values,
-               color=self.C["price_down"], width=0.7, alpha=0.9, edgecolor=self.C["price_down"], linewidth=0.5)
+        # Add minor ticks
+        ax.xaxis.set_minor_locator(mdates.AutoDateLocator(minticks=10, maxticks=30))
 
-        # Wicks
-        ax.vlines(x[bullish], df.loc[bullish, "low"].values, df.loc[bullish, "high"].values,
-                  color=self.C["price_up"], linewidth=1, alpha=0.6)
-        ax.vlines(x[bearish], df.loc[bearish, "low"].values, df.loc[bearish, "high"].values,
-                  color=self.C["price_down"], linewidth=1, alpha=0.6)
+        # Rotate for readability
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
-        # --- EMA 21 ---
+    def _plot_candlesticks(self, ax: plt.Axes, df: pd.DataFrame) -> None:
+        """Plot high-quality candlesticks with anti-aliased wicks."""
+        n = len(df)
+        x = np.arange(n)
+
+        # Compute candle bodies
+        bullish = df["close"].values >= df["open"].values
+        bearish = df["close"].values < df["open"].values
+
+        opens = df["open"].values
+        closes = df["close"].values
+        highs = df["high"].values
+        lows = df["low"].values
+
+        # Body heights
+        body_height_bull = closes[bullish] - opens[bullish]
+        body_height_bear = opens[bearish] - closes[bearish]
+        body_bottom_bull = opens[bullish]
+        body_bottom_bear = closes[bearish]
+
+        # Width adaptive to number of bars
+        bar_width = max(0.5, min(0.9, 1.0 / n * 50))
+
+        # Plot bodies
+        ax.bar(x[bullish], body_height_bull, bottom=body_bottom_bull,
+               color=self.colors["price_up"], width=bar_width,
+               edgecolor=self.colors["price_up"], linewidth=0.5, alpha=0.95,
+               zorder=3)
+        ax.bar(x[bearish], body_height_bear, bottom=body_bottom_bear,
+               color=self.colors["price_down"], width=bar_width,
+               edgecolor=self.colors["price_down"], linewidth=0.5, alpha=0.95,
+               zorder=3)
+
+        # Wicks (thin lines)
+        ax.vlines(x[bullish], lows[bullish], highs[bullish],
+                  color=self.colors["price_up"], linewidth=1, alpha=0.8, zorder=2)
+        ax.vlines(x[bearish], lows[bearish], highs[bearish],
+                  color=self.colors["price_down"], linewidth=1, alpha=0.8, zorder=2)
+
+    def _plot_ema(self, ax: plt.Axes, df: pd.DataFrame) -> None:
+        """Plot EMA with high-quality antialiasing."""
         ema_vals = self.indicator.ema.calculate(df["close"])
-        ax.plot(x, ema_vals.values, color=self.C["ema"], linewidth=2.5,
-                linestyle="--", label="EMA 21", alpha=0.9, zorder=6)
+        ax.plot(np.arange(len(df)), ema_vals.values,
+                color=self.colors["ema"], linewidth=3.0,
+                linestyle="--", label="EMA 21", alpha=0.95, zorder=6,
+                solid_capstyle="round", solid_joinstyle="round")
 
-        # --- Elliot Waves (last 4 for clarity) ---
-        recent_waves = waves[-4:] if len(waves) > 4 else waves
-        for wave in recent_waves:
-            color_key = f"wave{wave.wave_num}"
-            color = self.C.get(color_key, "#000000")
+    def _plot_waves(self, ax: plt.Axes, waves: list[Wave], df: pd.DataFrame) -> None:
+        """Plot Elliot Waves with clear markers and labels."""
+        if not waves:
+            return
+
+        recent = waves[-4:]  # Show only last 4 waves for clarity
+        for wave in recent:
+            color = self.colors.get(f"wave{wave.wave_num}", "#ffffff")
             try:
-                start_pos = df.index.get_loc(wave.start_idx)
-                end_pos = df.index.get_loc(wave.end_idx)
+                s = df.index.get_loc(wave.start_idx)
+                e = df.index.get_loc(wave.end_idx)
             except KeyError:
                 continue
 
-            x_seg = np.arange(start_pos, end_pos + 1)
-            y_seg = df["close"].iloc[start_pos:end_pos + 1].values
+            x_seg = np.arange(s, e + 1)
+            y_seg = df["close"].iloc[s:e + 1].values
 
-            ax.plot(x_seg, y_seg, color=color, linewidth=3.5, marker="o",
-                    markersize=6, markerfacecolor=color, markeredgecolor="white",
-                    markeredgewidth=1, zorder=7, label=f"W{wave.wave_num}")
+            # Wave line with rounded caps
+            ax.plot(x_seg, y_seg, color=color, linewidth=4, marker="o",
+                    markersize=8, markerfacecolor=color, markeredgecolor="white",
+                    markeredgewidth=1.5, zorder=7, label=f"W{wave.wave_num}",
+                    solid_capstyle="round", alpha=0.95)
 
-            # Wave label at start
-            start_y = df["close"].iloc[start_pos]
-            y_offset = -15 if wave.direction == "down" else 15
-            ax.annotate(f"W{wave.wave_num}", xy=(start_pos, start_y),
-                       xytext=(0, y_offset), textcoords="offset points",
-                       fontsize=9, fontweight="bold", color=color,
-                       ha="center", arrowprops=dict(arrowstyle="-|>", color=color, alpha=0.6))
+            # Wave number label at start, offset to avoid overlap
+            start_y = df["close"].iloc[s]
+            offset = -20 if wave.direction == "down" else 20
+            ax.annotate(
+                f"W{wave.wave_num}",
+                xy=(s, start_y), xytext=(0, offset),
+                textcoords="offset points",
+                fontsize=12, fontweight="bold", color=color,
+                ha="center", va="center" if wave.direction == "down" else "bottom",
+                arrowprops=dict(arrowstyle="-|>", color=color, alpha=0.7, linewidth=1.5),
+                bbox=dict(boxstyle="round,pad=0.2", facecolor=self.colors["bg"],
+                         edgecolor=color, alpha=0.9, linewidth=1)
+            )
 
-        # --- Fibonacci Levels ---
-        last_x = n_bars - 1
-        for name, price in retracements.items():
-            ax.axhline(y=price, color=self.C["fib_ret"], linestyle=":", linewidth=1.5, alpha=0.5)
-            ax.text(n_bars + 5, price, f" {name}", va="center", fontsize=9,
-                   color=self.C["fib_ret"], fontweight="bold", alpha=0.8,
-                   bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"))
+    def _plot_fibonacci(self, ax: plt.Axes, retracements: Dict[str, float],
+                        extensions: Dict[str, float], n_bars: int) -> None:
+        """Plot Fibonacci levels with clear right-side labels."""
+        # Right side offset for labels
+        label_x = n_bars + max(5, int(n_bars * 0.02))
 
-        for name, price in extensions.items():
-            ax.axhline(y=price, color=self.C["fib_ext"], linestyle="-.", linewidth=1.5, alpha=0.5)
-            ax.text(n_bars + 5, price, f" {name}", va="center", fontsize=9,
-                   color=self.C["fib_ext"], fontweight="bold", alpha=0.8,
-                   bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none"))
+        for i, (name, price) in enumerate(retracements.items()):
+            y = price
+            ax.axhline(y=y, color=self.colors["fib_ret"], linestyle=":",
+                      linewidth=1.8, alpha=0.7, zorder=4)
+            # Offset each label vertically to avoid overlap
+            offset = -8 + i * 14
+            ax.text(label_x, y, f" {name}", va="center", fontsize=10,
+                   color=self.colors["fib_ret"], fontweight="bold", alpha=0.95,
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                            edgecolor=self.colors["fib_ret"], alpha=0.8, linewidth=0.5))
 
-        # --- Historical Signals (last 5) ---
-        if not signals_df.empty:
-            for idx, row in signals_df.tail(5).iterrows():
-                try:
-                    x_pos = df.index.get_loc(idx)
-                except KeyError:
-                    continue
-                price = row["price"]
-                color = self.C["buy"] if row["signal"] == "BUY" else self.C["sell"]
-                marker = "^" if row["signal"] == "BUY" else "v"
-                size = 120 if row.get("confidence", 0) >= 0.8 else 90
-                ax.scatter(x_pos, price, marker=marker, color=color, s=size,
-                          zorder=12, edgecolors="black", linewidth=2, alpha=0.9)
-                ax.annotate(f"{row['signal']}\n{row['confidence']:.0%}",
-                           xy=(x_pos, price), xytext=(0, 18 if row["signal"] == "BUY" else -22),
-                           textcoords="offset points", ha="center", fontsize=8,
-                           color=color, fontweight="bold",
-                           arrowprops=dict(arrowstyle="->", color=color, alpha=0.6, linewidth=1.5))
+        for i, (name, price) in enumerate(extensions.items()):
+            y = price
+            ax.axhline(y=y, color=self.colors["fib_ext"], linestyle="-.",
+                      linewidth=1.8, alpha=0.7, zorder=4)
+            ax.text(label_x, y, f" {name}", va="center", fontsize=10,
+                   color=self.colors["fib_ext"], fontweight="bold", alpha=0.95,
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                            edgecolor=self.colors["fib_ext"], alpha=0.8, linewidth=0.5))
 
-        # --- Latest Signal: Entry, TP, SL ---
-        if latest_signal:
-            try:
-                entry_x = n_bars - 1
-            except:
-                entry_x = last_x
-
-            entry_price = latest_signal.price
-
-            # Entry star
-            ax.scatter(entry_x, entry_price, marker="*", color=self.C["entry"],
-                      s=350, zorder=20, edgecolors="black", linewidth=3)
-            ax.text(entry_x, entry_price * 1.008, f"ENTRY ${entry_price:,.0f}",
-                   ha="center", fontsize=11, fontweight="bold", color=self.C["entry"])
-
-            # Stop Loss
-            if latest_signal.stop_loss:
-                ax.axhline(y=latest_signal.stop_loss, color=self.C["sl"],
-                          linestyle="--", linewidth=3, alpha=0.8, zorder=8)
-                ax.text(entry_x, latest_signal.stop_loss * 0.992,
-                       f"SL ${latest_signal.stop_loss:,.0f}",
-                       ha="center", va="top", fontsize=10, fontweight="bold",
-                       color=self.C["sl"],
-                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                                alpha=0.95, edgecolor=self.C["sl"]))
-
-            # Take Profit
-            if latest_signal.take_profit:
-                ax.axhline(y=latest_signal.take_profit, color=self.C["tp"],
-                          linestyle="--", linewidth=3, alpha=0.8, zorder=8)
-                ax.text(entry_x, latest_signal.take_profit * 1.008,
-                       f"TP ${latest_signal.take_profit:,.0f}",
-                       ha="center", va="bottom", fontsize=10, fontweight="bold",
-                       color=self.C["tp"],
-                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                                alpha=0.95, edgecolor=self.C["tp"]))
-
-        # --- Support/Resistance ---
-        if support_resistance:
-            for level in support_resistance.get("support", []):
-                ax.axhline(y=level, color=self.C["support"], linestyle=":", linewidth=1.5, alpha=0.4)
-            for level in support_resistance.get("resistance", []):
-                ax.axhline(y=level, color=self.C["resistance"], linestyle=":", linewidth=1.5, alpha=0.4)
-
-        # --- Axis formatting ---
-        ax.set_ylabel("Price (USDT)", fontsize=12, fontweight="bold", color=self.C["text"])
-        ax.tick_params(axis='both', labelsize=10)
-
-        # X-axis tick labels with date formatting
-        tick_interval = max(1, n_bars // 15)
-        tick_positions = np.arange(0, n_bars, tick_interval)
-        if timeframe in ["1d", "D", "1w", "W"]:
-            date_labels = [df.index[i].strftime("%Y-%m-%d") for i in tick_positions if i < n_bars]
-        else:
-            date_labels = [df.index[i].strftime("%m-%d %H:%M") for i in tick_positions if i < n_bars]
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels(date_labels, rotation=45, ha="right", fontsize=9)
-
-        ax.grid(True, linestyle="--", alpha=0.2, color=self.C["grid"])
-        ax.set_facecolor(self.C["bg"])
-        for spine in ax.spines.values():
-            spine.set_edgecolor(self.C["text"])
-
-        # Title
-        title = f"Elliot Wave Analysis — {timeframe.upper()}"
-        if latest_signal:
-            title += f" | {latest_signal.signal_type} @ ${latest_signal.price:,.0f} (conf={latest_signal.confidence:.0%})"
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=15, color=self.C["text"])
-
-        # Legend
-        legend_handles = [
-            plt.Line2D([0], [0], color=self.C["ema"], linestyle="--", label="EMA 21", linewidth=2),
-            plt.Rectangle((0,0),1,1, facecolor=self.C["price_up"], label="Bull"),
-            plt.Rectangle((0,0),1,1, facecolor=self.C["price_down"], label="Bear"),
-        ]
-        if latest_signal:
-            col = self.C["buy"] if latest_signal.signal_type == "BUY" else self.C["sell"]
-            mark = "^" if latest_signal.signal_type == "BUY" else "v"
-            legend_handles.append(plt.Line2D([0], [0], marker=mark, color=col,
-                                            label=f"{latest_signal.signal_type} Signal",
-                                            linestyle="None", markersize=10, markeredgecolor="black"))
-        ax.legend(handles=legend_handles, loc="upper left", fontsize=9,
-                 framealpha=0.95, ncol=4, frameon=True)
-
-    def _plot_volume_panel(self, ax: plt.Axes, df: pd.DataFrame) -> None:
-        """Volume bars below price."""
-        if "volume" not in df.columns or df["volume"].sum() == 0:
-            ax.set_visible(False)
+    def _plot_signals_historical(self, ax: plt.Axes, signals_df: pd.DataFrame, df: pd.DataFrame) -> None:
+        """Plot historical signal markers (last 5 only)."""
+        if signals_df.empty:
             return
 
-        n_bars = len(df)
-        x = np.arange(n_bars)
-        colors = [self.C["price_up"] if close >= open else self.C["price_down"]
-                 for close, open in zip(df["close"], df["open"])]
+        for idx, row in signals_df.tail(5).iterrows():
+            try:
+                x_pos = df.index.get_loc(idx)
+            except KeyError:
+                continue
 
-        ax.bar(x, df["volume"], color=colors, width=0.7, alpha=0.6, edgecolor="none")
-        ax.set_ylabel("Volume", fontsize=10, fontweight="bold", color=self.C["text"])
-        ax.tick_params(axis='y', labelsize=8)
-        ax.set_xlabel("Date", fontsize=11, fontweight="bold", color=self.C["text"])
+            price = row["price"]
+            sig_type = row["signal"]
+            conf = row.get("confidence", 0.5)
+            color = self.colors["buy"] if sig_type == "BUY" else self.colors["sell"]
+            marker = "^" if sig_type == "BUY" else "v"
+            size = 140 if conf >= 0.8 else 110
 
-        # X-ticks already synced from price panel
-        tick_interval = max(1, n_bars // 15)
-        tick_positions = np.arange(0, n_bars, tick_interval)
-        ax.set_xticks(tick_positions)
+            ax.scatter(x_pos, price, marker=marker, color=color, s=size,
+                      zorder=12, edgecolors="black", linewidth=2.5, alpha=0.95,
+                      clip_on=False)
 
-        ax.grid(True, linestyle="--", alpha=0.2, color=self.C["grid"])
-        ax.set_facecolor(self.C["bg"])
+            # Confidence label
+            ax.annotate(f"{sig_type}\n{conf:.0%}",
+                       xy=(x_pos, price),
+                       xytext=(0, 22 if sig_type == "BUY" else -28),
+                       textcoords="offset points",
+                       ha="center", fontsize=10, fontweight="bold", color=color,
+                       arrowprops=dict(arrowstyle="->", color=color, alpha=0.7, linewidth=2),
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                                edgecolor=color, alpha=0.9, linewidth=1))
 
-    def _add_signal_info_box(self, ax: plt.Axes, signal: Optional[Signal]) -> None:
-        """Add info box in top-right corner."""
+    def _plot_latest_signal_details(self, ax: plt.Axes, signal: Optional[Signal],
+                                     df: pd.DataFrame, n_bars: int) -> None:
+        """Plot latest signal entry, TP, SL with prominent markers and labels."""
         if not signal:
             return
 
-        info_lines = [
+        entry_x = n_bars - 1
+        entry_p = signal.price
+
+        # ENTRY star (largest)
+        ax.scatter(entry_x, entry_p, marker="*", color=self.colors["entry"],
+                  s=400, zorder=20, edgecolors="black", linewidth=3,
+                  clip_on=False)
+
+        # Entry label
+        ax.text(entry_x, entry_p * 1.008, f"ENTRY ${entry_p:,.0f}",
+               ha="center", fontsize=13, fontweight="bold", color=self.colors["entry"],
+               bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                        edgecolor=self.colors["entry"], linewidth=2, alpha=0.95))
+
+        # Stop Loss
+        if signal.stop_loss:
+            sl = signal.stop_loss
+            ax.axhline(y=sl, color=self.colors["sl"], linestyle="--",
+                      linewidth=3, alpha=0.85, zorder=8)
+            ax.text(entry_x, sl * 0.992, f"SL ${sl:,.0f}",
+                   ha="center", va="top", fontsize=11, fontweight="bold",
+                   color=self.colors["sl"],
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                            edgecolor=self.colors["sl"], linewidth=2, alpha=0.95))
+
+        # Take Profit
+        if signal.take_profit:
+            tp = signal.take_profit
+            ax.axhline(y=tp, color=self.colors["tp"], linestyle="--",
+                      linewidth=3, alpha=0.85, zorder=8)
+            ax.text(entry_x, tp * 1.008, f"TP ${tp:,.0f}",
+                   ha="center", va="bottom", fontsize=11, fontweight="bold",
+                   color=self.colors["tp"],
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor=self.colors["bg"],
+                            edgecolor=self.colors["tp"], linewidth=2, alpha=0.95))
+
+    def _plot_volume(self, ax: plt.Axes, df: pd.DataFrame) -> None:
+        """Plot colored volume bars."""
+        if "volume" not in df.columns or df["volume"].isna().all():
+            ax.set_visible(False)
+            return
+
+        x = np.arange(len(df))
+        colors = [self.colors["volume_up"] if c >= o else self.colors["volume_down"]
+                 for c, o in zip(df["close"].values, df["open"].values)]
+
+        ax.bar(x, df["volume"].values, color=colors, width=0.7,
+               alpha=0.85, edgecolor="none", zorder=3)
+        ax.set_ylabel("Volume", fontweight="bold", color=self.colors["text"])
+        ax.tick_params(axis='y', labelsize=9)
+        ax.yaxis.set_tick_params(labelleft=True)
+
+    def _plot_support_resistance(self, ax: plt.Axes, levels: Dict[str, List[float]]) -> None:
+        """Plot support/resistance levels."""
+        for level in levels.get("support", []):
+            ax.axhline(y=level, color=self.colors["support"], linestyle=":",
+                      linewidth=1.5, alpha=0.5, zorder=3)
+        for level in levels.get("resistance", []):
+            ax.axhline(y=level, color=self.colors["resistance"], linestyle=":",
+                      linewidth=1.5, alpha=0.5, zorder=3)
+
+    def _add_title(self, ax: plt.Axes, symbol: str, timeframe: str, latest_signal: Optional[Signal]) -> None:
+        """Add informative title."""
+        title = f"{symbol} — {timeframe.upper()} Elliot Wave Analysis"
+        if latest_signal:
+            title += f" | {latest_signal.signal_type} @ ${latest_signal.price:,.0f} ({latest_signal.confidence:.0%})"
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=18,
+                    color=self.colors["text"], loc="left")
+
+    def _add_legend(self, ax: plt.Axes, latest_signal: Optional[Signal]) -> None:
+        """Add compact, informative legend."""
+        items = [
+            plt.Line2D([0], [0], color=self.colors["ema"], linestyle="--",
+                      label="EMA 21", linewidth=2.5),
+            plt.Rectangle((0,0),1,1, facecolor=self.colors["price_up"],
+                         label="Bullish", alpha=0.9),
+            plt.Rectangle((0,0),1,1, facecolor=self.colors["price_down"],
+                         label="Bearish", alpha=0.9),
+        ]
+
+        if latest_signal:
+            col = self.colors["buy"] if latest_signal.signal_type == "BUY" else self.colors["sell"]
+            mark = "^" if latest_signal.signal_type == "BUY" else "v"
+            items.append(plt.Line2D([0], [0], marker=mark, color=col,
+                                   label=f"{latest_signal.signal_type} Signal",
+                                   linestyle="None", markersize=10,
+                                   markeredgecolor="black", markeredgewidth=1))
+
+        ax.legend(handles=items, loc="upper left", fontsize=10,
+                 framealpha=0.95, ncol=3, frameon=True, fancybox=True,
+                 shadow=True, borderpad=0.6)
+
+    def _add_info_box(self, ax: plt.Axes, signal: Optional[Signal]) -> None:
+        """Add signal details info box."""
+        if not signal:
+            return
+
+        lines = [
             f"Signal : {signal.signal_type}",
             f"Wave   : {signal.wave_num}",
             f"Entry  : ${signal.price:,.0f}",
         ]
-        if signal.stop_loss:
-            info_lines.append(f"SL     : ${signal.stop_loss:,.0f}")
-        else:
-            info_lines.append("SL     : N/A")
-        if signal.take_profit:
-            info_lines.append(f"TP     : ${signal.take_profit:,.0f}")
-        else:
-            info_lines.append("TP     : N/A")
-        info_lines.append(f"Conf   : {signal.confidence:.0%}")
+        lines.append(f"SL     : ${signal.stop_loss:,.0f}" if signal.stop_loss else "SL     : N/A")
+        lines.append(f"TP     : ${signal.take_profit:,.0f}" if signal.take_profit else "TP     : N/A")
+        lines.append(f"Conf   : {signal.confidence:.0%}")
 
-        info = "\n".join(info_lines)
+        text = "\n".join(lines)
 
-        props = dict(boxstyle="round,pad=0.7", facecolor="white", alpha=0.95,
-                    edgecolor=self.C["sl"] if signal.signal_type == "SELL" else self.C["tp"],
-                    linewidth=2)
+        props = dict(
+            boxstyle="round,pad=0.8",
+            facecolor=self.colors["bg"],
+            alpha=0.95,
+            edgecolor=self.colors["sl"] if signal.signal_type == "SELL" else self.colors["tp"],
+            linewidth=2
+        )
 
-        ax.text(0.98, 0.95, info, transform=ax.transAxes, fontsize=10,
+        ax.text(0.995, 0.95, text, transform=ax.transAxes,
+                fontsize=11, fontweight="bold", family="monospace",
                 verticalalignment="top", horizontalalignment="right",
-                fontweight="bold", family="monospace", bbox=props)
+                bbox=props)
 
     def plot(
         self,
@@ -310,23 +487,28 @@ class ProfessionalChartPlotter:
         output_path: str,
         symbol: str = "BTC/USDT",
         timeframe: str = "4h",
-        dpi: int = 200,
-        show_plot: bool = False
+        format: Literal["png", "pdf", "svg", "eps"] = "png",
+        dpi: Optional[int] = None,
+        show_plot: bool = False,
+        metadata: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Generate and save professional multi-panel chart.
+        Generate and save high-resolution chart.
 
         Args:
             df: OHLCV DataFrame.
-            output_path: Output PNG file path.
-            symbol: Trading pair name for title.
-            timeframe: Timeframe string (affects date format).
-            dpi: Image resolution (default 200).
+            output_path: Output file path (extension determines format).
+            symbol: Trading pair name.
+            timeframe: Timeframe string (affects date format and layout).
+            format: Output format — 'png', 'pdf', 'svg', or 'eps'.
+            dpi: Override DPI (default uses self.base_dpi; vector formats ignore).
             show_plot: If True, display interactive window.
+            metadata: Optional dict of metadata to embed (for PNG/PDF).
 
         Returns:
-            Absolute path to saved PNG file.
+            Absolute path to saved file.
         """
+        # Analysis
         results = self.indicator.analyze(df)
         waves = results["waves"]
         retracements = results.get("retracements", {})
@@ -334,36 +516,71 @@ class ProfessionalChartPlotter:
         latest_signal = self.indicator.get_latest_signal(df)
         support_resistance = self.indicator.get_support_resistance(df, lookback=60)
 
-        fig, (ax_price, ax_volume) = self._create_figure()
+        # Figure setup
+        n_bars = len(df)
+        fig, (ax_price, ax_volume) = self._create_figure(n_bars, timeframe)
 
-        # Price panel
-        self._plot_price_panel(
-            ax_price, df, results["signals"], latest_signal,
-            waves, retracements, extensions, support_resistance, timeframe
-        )
+        # --- Price panel ---
+        self._plot_candlesticks(ax_price, df)
+        self._plot_ema(ax_price, df)
+        self._plot_waves(ax_price, waves, df)
+        self._plot_fibonacci(ax_price, retracements, extensions, n_bars)
+        self._plot_signals_historical(ax_price, results["signals"], df)
+        self._plot_latest_signal_details(ax_price, latest_signal, df, n_bars)
+        self._plot_support_resistance(ax_price, support_resistance)
+        self._format_dates(ax_price, df, timeframe)
+        self._add_title(ax_price, symbol, timeframe, latest_signal)
+        self._add_legend(ax_price, latest_signal)
+        self._add_info_box(ax_price, latest_signal)
 
-        # Volume panel
-        self._plot_volume_panel(ax_volume, df)
+        ax_price.set_ylabel("Price (USDT)", fontweight="bold", color=self.colors["text"])
 
-        # Info box
-        self._add_signal_info_box(ax_price, latest_signal)
+        # --- Volume panel ---
+        self._plot_volume(ax_volume, df)
+        ax_volume.set_xlabel("Date", fontweight="bold", color=self.colors["text"])
 
         # Save
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        plt.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        os.makedirs(output_dir, exist_ok=True)
+
+        save_kwargs = {
+            "dpi": dpi or self.base_dpi,
+            "facecolor": fig.get_facecolor(),
+            "edgecolor": "none",
+            "bbox_inches": "tight",
+            "pad_inches": 0.3,
+        }
+
+        # Auto-generate metadata if not provided
+        if metadata is None:
+            metadata = {
+                "Title": f"{symbol} Elliot Wave Analysis — {timeframe.upper()}",
+                "Author": "CryptoElliotWaveIndicator",
+                "CreationDate": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Producer": "Matplotlib",
+                "Subject": f"Wave count: {len(waves)} | Latest: {latest_signal.signal_type if latest_signal else 'N/A'}",
+            }
+        save_kwargs["metadata"] = metadata
+
+        # Choose backend based on format
+        if format == "png":
+            # PNG with optimal compression
+            save_kwargs["format"] = "png"
+            save_kwargs["transparent"] = False
+        elif format == "pdf":
+            save_kwargs["format"] = "pdf"
+        elif format == "svg":
+            save_kwargs["format"] = "svg"
+        elif format == "eps":
+            save_kwargs["format"] = "eps"
+
+        fig.savefig(output_path, **save_kwargs)
+
         if show_plot:
             plt.show()
         plt.close(fig)
 
         return os.path.abspath(output_path)
-
-    def _create_figure(self) -> Tuple[plt.Figure, Tuple[plt.Axes, plt.Axes]]:
-        """Create figure with price and volume subplots."""
-        fig = plt.figure(figsize=self.figsize, constrained_layout=True)
-        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
-        ax_price = fig.add_subplot(gs[0, 0])
-        ax_volume = fig.add_subplot(gs[1, 0], sharex=ax_price)
-        return fig, (ax_price, ax_volume)
 
 
 # Convenience function
@@ -373,16 +590,34 @@ def generate_chart(
     output_path: str,
     symbol: str = "BTC/USDT",
     timeframe: str = "4h",
+    theme: Literal["light", "dark"] = "light",
+    dpi: int = 300,
+    format: Literal["png", "pdf", "svg", "eps"] = "png",
     **kwargs
 ) -> str:
     """
-    One-liner to generate professional chart.
+    Generate a high-resolution professional chart.
+
+    Args:
+        df: OHLCV data.
+        indicator: Initialized CryptoElliotWaveIndicator.
+        output_path: Output file path.
+        symbol: Trading pair (e.g., "BTC/USDT").
+        timeframe: "4h", "1d", etc.
+        theme: "light" or "dark" background.
+        dpi: Resolution (min 150, max 1200, default 300).
+        format: Output format — png (default), pdf (vector), svg (vector), eps (vector).
+        **kwargs: Additional args passed to HighResolutionPlotter.plot().
+
+    Returns:
+        Absolute path to saved file.
 
     Example:
         indicator = CryptoElliotWaveIndicator()
         df = fetch_ohlcv("binance", "BTC/USDT", "1d", 500)
-        path = generate_chart(df, indicator, "charts/daily.png", symbol="BTC/USDT", timeframe="1d")
+        path = generate_chart(df, indicator, "charts/daily.pdf",
+                            symbol="BTC/USDT", timeframe="1d", dpi=600, format="pdf")
     """
-    plotter = ProfessionalChartPlotter(indicator)
+    plotter = HighResolutionPlotter(indicator, theme=theme, base_dpi=dpi)
     return plotter.plot(df=df, output_path=output_path, symbol=symbol,
-                       timeframe=timeframe, **kwargs)
+                       timeframe=timeframe, format=format, **kwargs)

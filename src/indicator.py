@@ -70,6 +70,12 @@ class CryptoElliotWaveIndicator:
         if df.empty:
             return {}
 
+        # Validate required columns
+        required_cols = ["open", "high", "low", "close"]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"DataFrame missing required columns: {missing}")
+
         # 1. Calculate EMA and trend
         ema_series = self.ema.calculate(df["close"])  # type: ignore
         trend_series = self.ema.trend_direction(df["close"], ema_series)  # type: ignore
@@ -123,23 +129,28 @@ class CryptoElliotWaveIndicator:
 
     def get_latest_signal(
         self,
-        df: pd.DataFrame
+        df: pd.DataFrame,
+        higher_tf_df: Optional[pd.DataFrame] = None
     ) -> Optional[Signal]:
         """
         Get the most recent signal only.
 
         Args:
-            df: OHLCV DataFrame.
+            df: OHLCV DataFrame for the current (lower) timeframe.
+            higher_tf_df: Optional OHLCV DataFrame for a higher timeframe
+                          (e.g., daily if current is 4H) to assess trend bias.
 
         Returns:
-            Signal object or None if no signal.
+            Signal object with enriched context, or None if no signal.
         """
         results = self.analyze(df)
         signal_df = results.get("signals", pd.DataFrame())
 
         if not signal_df.empty:
             latest = signal_df.iloc[-1]
-            return Signal(
+            
+            # Base Signal object (existing fields)
+            signal = Signal(
                 timestamp=latest.name,
                 signal_type=latest["signal"],
                 price=latest["price"],
@@ -151,6 +162,42 @@ class CryptoElliotWaveIndicator:
                 stop_loss=latest["stop_loss"],
                 take_profit=latest["take_profit"]
             )
+
+            # --- 1. Signal Category (based on distance from entry to current price) ---
+            current_price = df["close"].iloc[-1]
+            distance_pct = abs(signal.price - current_price) / current_price * 100
+            if distance_pct <= 3:
+                signal.signal_category = "ACTIVE_TRADE"
+            elif distance_pct <= 8:
+                signal.signal_category = "SETUP"
+            else:
+                signal.signal_category = "INVALID"
+
+            # --- 2. Trend Context (HTF vs LTF alignment) ---
+            bias = self._determine_bias(higher_tf_df) if higher_tf_df is not None else None
+            if bias:
+                if (bias == "BULLISH" and signal.signal_type == "BUY") or \
+                   (bias == "BEARISH" and signal.signal_type == "SELL"):
+                    signal.trend_context = "TREND_ALIGNED"
+                else:
+                    signal.trend_context = "COUNTER_TREND"
+            else:
+                signal.trend_context = "NONE"
+
+            # --- 3. Confidence Adjustment ---
+            conf = signal.confidence
+            if signal.trend_context == "COUNTER_TREND":
+                conf -= 0.20
+            if signal.signal_category != "ACTIVE_TRADE":
+                conf -= 0.15
+            # Wave count penalty: unusually high wave count suggests noisy/unclear structure
+            total_waves = len(results.get("waves", []))
+            if total_waves > 15:
+                conf -= 0.10
+            # Clamp between 40% and 90%
+            signal.confidence = max(0.40, min(0.90, conf))
+
+            return signal
         return None
 
     def get_support_resistance(
@@ -171,12 +218,21 @@ class CryptoElliotWaveIndicator:
         """
         result = self.analyze(df.tail(lookback * 3))
         retracements = result.get("retracements", {})
+        extensions = result.get("extensions", {})
 
         current_price = df["close"].iloc[-1]
         support = []
         resistance = []
 
+        # Retracement levels
         for level_name, level_price in retracements.items():
+            if level_price < current_price:
+                support.append(level_price)
+            elif level_price > current_price:
+                resistance.append(level_price)
+
+        # Extension levels (additional S/R)
+        for level_name, level_price in extensions.items():
             if level_price < current_price:
                 support.append(level_price)
             elif level_price > current_price:
@@ -186,3 +242,28 @@ class CryptoElliotWaveIndicator:
             "support": sorted(support, reverse=True)[:3],
             "resistance": sorted(resistance)[:3]
         }
+
+    def _determine_bias(self, df: pd.DataFrame) -> Optional[str]:
+        """
+        Determine the trend bias (BULLISH/BEARISH/NEUTRAL) for a given DataFrame.
+        Uses EMA trend direction as a simple, robust proxy.
+
+        Args:
+            df: OHLCV DataFrame.
+
+        Returns:
+            "BULLISH", "BEARISH", "NEUTRAL", or None if insufficient data.
+        """
+        if df.empty or "close" not in df.columns or len(df) < 2:
+            return None
+        try:
+            ema_vals = self.ema.calculate(df["close"])
+            trend_dir = self.ema.trend_direction(df["close"], ema_vals).iloc[-1]
+            if trend_dir > 0:
+                return "BULLISH"
+            elif trend_dir < 0:
+                return "BEARISH"
+            else:
+                return "NEUTRAL"
+        except Exception:
+            return None

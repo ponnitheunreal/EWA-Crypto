@@ -4,7 +4,7 @@ from .elliot_wave import ElliotWaveDetector, Wave
 from .signals import SignalGenerator, Signal
 from .indicator import CryptoElliotWaveIndicator
 from .exchange import ExchangeFetcher, fetch_ohlcv, fetch_current_price
-from .plotting import ProfessionalChartPlotter, generate_chart
+from .plotting import HighResolutionPlotter, generate_chart
 
 __all__ = [
     "EMA",
@@ -17,6 +17,6 @@ __all__ = [
     "ExchangeFetcher",
     "fetch_ohlcv",
     "fetch_current_price",
-    "ProfessionalChartPlotter",
+    "HighResolutionPlotter",
     "generate_chart",
 ]
