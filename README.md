@@ -19,8 +19,8 @@ A Python-based trading indicator that combines **Elliot Wave Theory**, **EMA 21 
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
-cd "Elliot wave"
+git clone <repository-url>
+cd <project-folder>
 ```
 
 Or download and extract the ZIP, then navigate to the folder.
@@ -87,7 +87,7 @@ print(signals_df.tail())
 ## Project Structure
 
 ```
-Elliot wave/
+.
 ├── src/
 │   ├── __init__.py          # Public API exports
 │   ├── ema.py               # EMA 21 calculation
@@ -401,4 +401,4 @@ MIT (or project-specific license)
 
 ## Support
 
-Report issues at: https://github.com/your-username/your-repo/issues  # Replace with your repo URL
+Please report any issues or feature requests on the GitHub repository's [Issues](<repository-url>/issues) page.

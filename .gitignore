@@ -84,4 +84,5 @@ ehthumbs.db
 ehthumbs_vista.db
 
 # Project-specific
+charts/
 # (add any project-specific exclusions here)
